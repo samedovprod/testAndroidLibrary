@@ -92,7 +92,6 @@ class MainActivity : AppCompatActivity() {
 
         if (requestCode == 1 && resultCode == Activity.RESULT_OK) {
             if (books.isEmpty()) {
-                // список пуст, создаем новый список
                 books = ArrayList()
             }
             val title = data?.getStringExtra("title") ?: ""
