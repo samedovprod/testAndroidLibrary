@@ -6,18 +6,14 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.ListView
 import androidx.appcompat.app.AppCompatActivity
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.launch
 
 @Suppress("DEPRECATION")
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var books: ArrayList<Book>
     private lateinit var listView: ListView
     private lateinit var adapter: BookListAdapter
-    private lateinit var bookDao: BookDao
+    private lateinit var bookManager: BookManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,17 +22,12 @@ class MainActivity : AppCompatActivity() {
         setupViews()
         setupListeners()
 
-        val db = AppDatabase.getDatabase(this)
-        bookDao = db.bookDao()
+        bookManager = BookManager(this, lifecycleScope)
+        bookManager.init()
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            books = ArrayList(bookDao.getAllBooks())
-
-            withContext(Dispatchers.Main) {
-                adapter = BookListAdapter(this@MainActivity, books)
-                listView.adapter = adapter
-            }
-        }
+        val books = bookManager.getAllBooks()
+        adapter = BookListAdapter(this, books)
+        listView.adapter = adapter
     }
 
     private fun setupViews() {
@@ -53,58 +44,50 @@ class MainActivity : AppCompatActivity() {
 
         val viewButton: Button = findViewById(R.id.viewButton)
         viewButton.setOnClickListener {
-            books.forEachIndexed { index, book ->
-                if (adapter.selectedIds[index]) {
-                    val intent = Intent(this, ViewBookActivity::class.java)
-                    intent.putExtra("title", book.title)
-                    intent.putExtra("author", book.author)
-                    intent.putExtra("description", book.description)
-                    startActivity(intent)
-                    return@setOnClickListener
-                }
+            val selectedBook = getSelectedBook()
+            if (selectedBook != null) {
+                val intent = Intent(this, ViewBookActivity::class.java)
+                intent.putExtra("title", selectedBook.title)
+                intent.putExtra("author", selectedBook.author)
+                intent.putExtra("description", selectedBook.description)
+                startActivity(intent)
             }
         }
 
         val deleteButton: Button = findViewById(R.id.deleteButton)
         deleteButton.setOnClickListener {
-            val booksToRemove = mutableListOf<Book>()
-            for (i in adapter.selectedIds.indices) {
-                if (adapter.selectedIds[i]) {
-                    booksToRemove.add(books[i])
-                }
-            }
-
-            lifecycleScope.launch {
-                withContext(Dispatchers.IO) {
-                    bookDao.deleteBooks(booksToRemove)
-                }
-                books.removeAll(booksToRemove.toSet())
-                books.ensureCapacity(books.size + booksToRemove.size)
-                adapter.notifyDataSetChanged()
-
-            }
+            val selectedIds = adapter.selectedIds
+            bookManager.deleteSelectedBooks(selectedIds)
+            adapter.notifyDataSetChanged()
         }
     }
+
+    private fun getSelectedBook(): Book? {
+        val selectedIds = adapter.selectedIds
+        for (i in selectedIds.indices) {
+            if (selectedIds[i]) {
+                val book = adapter.getItem(i)
+                if (book is Book) {
+                    return book
+                }
+            }
+        }
+        return null
+    }
+
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
 
         if (requestCode == 1 && resultCode == Activity.RESULT_OK) {
-            if (books.isEmpty()) {
-                books = ArrayList()
-            }
             val title = data?.getStringExtra("title") ?: ""
             val author = data?.getStringExtra("author") ?: ""
             val description = data?.getStringExtra("description") ?: ""
             val newBook = Book(title = title, author = author, description = description)
-            lifecycleScope.launch(Dispatchers.IO) {
-                bookDao.insertBook(newBook)
-                withContext(Dispatchers.Main) {
-                    books.add(newBook)
-                    adapter.notifyDataSetChanged()
-                }
-            }
+            bookManager.addBook(newBook)
+            adapter.notifyDataSetChanged()
         }
     }
 }
+
